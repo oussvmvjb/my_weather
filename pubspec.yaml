@@ -1,0 +1,38 @@
+name: my_weather
+description: "A new Flutter project."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.1  # تحديث للإصدار الأحدث
+  intl: ^0.19.0  # تحديث للإصدار الأحدث
+  flutter_dotenv: ^6.0.0  # تحديث للإصدار الأحدث
+  geolocator: ^14.0.2  # تحديث للإصدار الأحدث
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0  # تحديث للإصدار الأحدث
+
+flutter:
+  uses-material-design: true
+  
+  # الأصول (Assets)
+  assets:
+    - assets/fonts/  # أضف المجلد كاملاً
+    - .env
+  
+  # الخطوط (Fonts) - ⚠️ التصحيح هنا ⚠️
+  fonts:
+    - family: Ethnocentric  # ✅ اسم العائلة الصحيح
+      fonts:
+        - asset: assets/fonts/Ethnocentric_Rg_It.otf
+          # يمكن إضافة أوزان أخرى إذا كانت موجودة:
+          # - asset: assets/fonts/Ethnocentric-Bold.otf
+          #   weight: 700
