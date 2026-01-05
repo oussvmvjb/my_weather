@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "192278611410",
+    "project_id": "weather-alert-2998f",
+    "storage_bucket": "weather-alert-2998f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:192278611410:android:0250a8c74f0d189882340b",
+        "android_client_info": {
+          "package_name": "com.example.my_weather"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAmokMUaCubpo3BBSmwcGUQXSw8imJGiaA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

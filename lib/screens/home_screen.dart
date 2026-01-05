@@ -1,9 +1,11 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
 import '../services/weather_service.dart';
 import '../models/weather_model.dart';
 import 'forecast_screen.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -40,30 +42,54 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     Colors.indigo.shade900,
     Colors.deepOrange.shade900,
   ];
-
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+  FlutterLocalNotificationsPlugin();
   @override
-  void initState() {
-    super.initState();
-    
-    // Initialize animation controller
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 20),
-    )..repeat(reverse: true);
-    
-    _animation = Tween<double>(begin: -0.1, end: 0.1).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
-    );
-    
-    // Background color changer
-    _bgTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      setState(() {
-        _bgIndex = (_bgIndex + 1) % _bgColors.length;
-      });
+void initState() {
+  super.initState();
+
+  // Initialize notifications
+  const AndroidInitializationSettings initializationSettingsAndroid =
+  AndroidInitializationSettings('@mipmap/ic_launcher');
+
+  final InitializationSettings initializationSettings =
+  InitializationSettings(android: initializationSettingsAndroid);
+
+  flutterLocalNotificationsPlugin.initialize(initializationSettings);
+  // Initialize animation controller
+  _animationController = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 20),
+  )..repeat(reverse: true);
+  
+  _animation = Tween<double>(begin: -0.1, end: 0.1).animate(
+    CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+  );
+  
+  // Background color changer
+  _bgTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+    setState(() {
+      _bgIndex = (_bgIndex + 1) % _bgColors.length;
     });
-    
-    _loadCurrentLocationWeather();
-  }
+  });
+  
+  // Load weather
+  _loadCurrentLocationWeather();
+
+  // --- Firebase Messaging listener ---
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    // يمكنك هنا عرض إشعار داخل التطبيق إذا أحببت
+    print("Notification received:");
+    print("Title: ${message.notification?.title}");
+    print("Body: ${message.notification?.body}");
+  });
+
+  // (اختياري) استخراج FCM Token الآن
+  FirebaseMessaging.instance.getToken().then((token) {
+    print("FCM Token: $token"); // احتفظ بهذا لاستخدامه في n8n
+  });
+}
+
 
   @override
   void dispose() {
@@ -122,6 +148,47 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       });
     }
   }
+  Future<void> _showTestNotification() async {
+  try {
+    // جلب الطقس لمدينة معينة، مثال: Tunis
+    final weatherData = await WeatherService.getCurrentWeather('beja');
+    final double temp = weatherData['main']['temp'];
+
+    // نص الإشعار الأساسي
+    String message = 'درجة الحرارة الآن: ${temp.toStringAsFixed(1)}°C';
+
+    // شرط للإشعار: حرارة مرتفعة أو منخفضة
+    if (temp > 30) {
+      message += ' 🔥 الجو حار!';
+    } else if (temp < 10) {
+      message += ' ❄️ الجو بارد!';
+    }
+
+    // إعداد Notification
+    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      'weather_channel',
+      'Weather Alerts',
+      channelDescription: 'Notifications for temperature alerts',
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+    );
+
+    const NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+
+    // عرض الإشعار
+    await flutterLocalNotificationsPlugin.show(
+      0,
+      'Weather Update',
+      message,
+      platformDetails,
+      payload: 'Weather Payload',
+    );
+  } catch (e) {
+    print("Error showing test notification: $e");
+  }
+}
+
 
   Future<void> _searchWeather(String city) async {
     if (city.isEmpty) return;
@@ -467,6 +534,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                           strokeWidth: 2,
                         ),
+                    
                         const SizedBox(height: 20),
                         const Text(
                           'LOADING WEATHER DATA',
@@ -483,32 +551,53 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 : Column(
                     children: [
                       // App bar
-                      Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.menu, color: Colors.white),
-                              onPressed: () {},
-                            ),
-                            const Text(
-                              'MY WEATHER',
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.white,
-                                letterSpacing: 3,
-                                fontFamily: 'Ethnocentric',
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.refresh, color: Colors.white),
-                              onPressed: _loadCurrentLocationWeather,
-                            ),
-                          ],
-                        ),
-                      ),
+                      // App bar - تم تعديل هذا الجزء
+Padding(
+  padding: const EdgeInsets.all(20),
+  child: Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      // القائمة مع زر الاختبار
+      PopupMenuButton<String>(
+        icon: const Icon(Icons.menu, color: Colors.white),
+        onSelected: (value) {
+          if (value == 'test_notification') {
+            _showTestNotification();
+          }
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem<String>(
+            value: 'test_notification',
+            child: Row(
+              children: [
+                Icon(Icons.notifications, color: Colors.orange),
+                SizedBox(width: 10),
+                Text('Test Notification'),
+              ],
+            ),
+          ),
+        ],
+        color: Colors.grey[900],
+      ),
+      
+      const Text(
+        'MY WEATHER',
+        style: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.w900,
+          color: Colors.white,
+          letterSpacing: 3,
+          fontFamily: 'Ethnocentric',
+        ),
+      ),
+      
+      IconButton(
+        icon: const Icon(Icons.refresh, color: Colors.white),
+        onPressed: _loadCurrentLocationWeather,
+      ),
+    ],
+  ),
+),
                       
                       // Search bar
                       Padding(

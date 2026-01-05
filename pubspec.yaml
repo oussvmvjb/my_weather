@@ -14,12 +14,20 @@ dependencies:
   flutter_dotenv: ^6.0.0  # تحديث للإصدار الأحدث
   geolocator: ^14.0.2  # تحديث للإصدار الأحدث
   cupertino_icons: ^1.0.8
-
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.1.3
+  flutter_local_notifications: ^14.1.5
+  workmanager: ^0.7.0
+  connectivity_plus: ^5.0.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0  # تحديث للإصدار الأحدث
-
+  flutter_launcher_icons: ^0.13.1
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/logo.png"
 flutter:
   uses-material-design: true
   
@@ -27,6 +35,7 @@ flutter:
   assets:
     - assets/fonts/  # أضف المجلد كاملاً
     - .env
+    - assets/icon/logo.png
   
   # الخطوط (Fonts) - ⚠️ التصحيح هنا ⚠️
   fonts:
