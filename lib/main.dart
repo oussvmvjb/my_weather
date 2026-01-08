@@ -3,56 +3,150 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:workmanager/workmanager.dart';
+import 'package:geolocator/geolocator.dart'; // أضف هذه
 import 'screens/home_screen.dart';
-import 'services/weather_service.dart'; // خدمة الطقس لديك
+import 'services/weather_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
-// ⚡ دالة WorkManager التي تعمل في الخلفية
+@pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
+    print("🎯 Background task started: $task");
+    WidgetsFlutterBinding.ensureInitialized();
+
+    // 0️⃣ تهيئة الإشعارات داخل المعزولة (Isolate) الخلفية
+    final FlutterLocalNotificationsPlugin backgroundNotificationsPlugin =
+        FlutterLocalNotificationsPlugin();
+    
+    // تهيئة الإعدادات لنظام أندرويد
+    const AndroidInitializationSettings androidInit = 
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+    const InitializationSettings initSettings = 
+        InitializationSettings(android: androidInit);
+    
+    await backgroundNotificationsPlugin.initialize(initSettings);
+
     try {
-      // جلب الطقس لمدينة معينة (مثال: Tunis)
-      final weatherData = await WeatherService.getCurrentWeather('Tunis');
-      final double temp = weatherData['main']['temp'];
-
-      String message = 'درجة الحرارة الآن: ${temp.toStringAsFixed(1)}°C';
-
-      // شرط للإشعار: حرارة مرتفعة أو منخفضة
-      if (temp > 30) {
-        message += ' 🔥 الجو حار!';
-      } else if (temp < 10) {
-        message += ' ❄️ الجو بارد!';
+      // 1️⃣ الحصول على الموقع الحالي في الخلفية
+      LocationPermission permission = await Geolocator.checkPermission();
+      
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission != LocationPermission.whileInUse && 
+            permission != LocationPermission.always) {
+          print("❌ Location permission denied in background");
+          // استخدم المدينة المخزنة كبديل
+          await _notifyWithSavedCity(backgroundNotificationsPlugin);
+          return Future.value(true); // ✅ هنا نقوم بالإرجاع
+        }
       }
 
-      // إرسال Notification
-      const AndroidNotificationDetails androidDetails =
-          AndroidNotificationDetails(
-        'weather_channel',
-        'Weather Alerts',
-        channelDescription: 'Notifications for temperature alerts',
-        importance: Importance.high,
-        priority: Priority.high,
-        playSound: true,
+      if (permission == LocationPermission.deniedForever) {
+        print("❌ Location permission permanently denied");
+        await _notifyWithSavedCity(backgroundNotificationsPlugin); // ✅ ننتظر اكتمال الدالة
+        return Future.value(true);
+      }
+
+      // 2️⃣ الحصول على الإحداثيات
+      Position position;
+      try {
+        position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.medium,
+        );
+        print("📍 Background location: ${position.latitude}, ${position.longitude}");
+      } catch (e) {
+        print("❌ Failed to get position: $e");
+        await _notifyWithSavedCity(backgroundNotificationsPlugin); // ✅ ننتظر اكتمال الدالة
+        return Future.value(true);
+      }
+
+      // 3️⃣ الحصول على الطقس بالإحداثيات
+      final weatherData = await WeatherService.getWeatherByLocation(
+        position.latitude,
+        position.longitude,
       );
 
-      const NotificationDetails platformDetails =
-          NotificationDetails(android: androidDetails);
+      final city = weatherData['name'] ?? 'Unknown City';
+      final double temp = (weatherData['main']['temp'] as num).toDouble();
+      
+      // 4️⃣ حفظ المدينة الجديدة
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('city', city);
 
-      await flutterLocalNotificationsPlugin.show(
-        0,
-        'Weather Update',
-        message,
-        platformDetails,
-      );
+      // 5️⃣ إرسال الإشعار
+      await _sendWeatherNotification(city, temp, backgroundNotificationsPlugin);
+
     } catch (e) {
-      print("Error fetching weather in background: $e");
+      print('❌ Background error: $e');
+      // حاول باستخدام المدينة المخزنة
+      await _notifyWithSavedCity(backgroundNotificationsPlugin); // ✅ ننتظر اكتمال الدالة
     }
 
-    return Future.value(true);
+    return Future.value(true); // ✅ إرجاع القيمة المطلوبة
   });
 }
+
+// دالة مساعدة للإشعار بالمدينة المخزنة
+Future<bool> _notifyWithSavedCity(FlutterLocalNotificationsPlugin notificationsPlugin) async { // ✅ تغيير نوع الإرجاع إلى Future<bool>
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final city = prefs.getString('city') ?? 'Tunis';
+    
+    final weatherData = await WeatherService.getCurrentWeather(city);
+    final double temp = (weatherData['main']['temp'] as num).toDouble();
+    
+    await _sendWeatherNotification(city, temp, notificationsPlugin);
+    return true; // ✅ إرجاع true
+  } catch (e) {
+    print("❌ Failed to notify with saved city: $e");
+    return false; // ✅ إرجاع false في حالة الخطأ
+  }
+}
+
+// دالة مساعدة لإرسال الإشعار
+Future<bool> _sendWeatherNotification(String city, double temp, FlutterLocalNotificationsPlugin notificationsPlugin) async { // ✅ تغيير إلى Future<bool>
+  try {
+    String message = 'درجة الحرارة في $city: ${temp.toStringAsFixed(1)}°C';
+
+    if (temp > 30) {
+      message += ' 🔥 الجو حار';
+    } else if (temp < 10) {
+      message += ' ❄️ الجو بارد';
+    }
+
+    const androidDetails = AndroidNotificationDetails(
+      'weather_channel',
+      'Weather Alerts',
+      channelDescription: 'Weather background alerts',
+      importance: Importance.high,
+      priority: Priority.high,
+      enableVibration: true,
+      playSound: true,
+    );
+
+    const notificationDetails = NotificationDetails(android: androidDetails);
+
+    await notificationsPlugin.show(
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      'تحديث الطقس',
+      message,
+      notificationDetails,
+    );
+    
+    print("✅ Notification sent for $city: $temp°C");
+    return true; // ✅ إرجاع true
+  } catch (e) {
+    print("❌ Failed to send notification: $e");
+    return false; // ✅ إرجاع false في حالة الخطأ
+  }
+}
+
+
+
+
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -60,34 +154,49 @@ Future<void> main() async {
   // تهيئة Firebase
   await Firebase.initializeApp();
 
-  // طلب صلاحيات الإشعارات (Android يحتاجها أحيانًا)
-  await FirebaseMessaging.instance.requestPermission();
+  // طلب إذن الإشعارات
+  await FirebaseMessaging.instance.requestPermission(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
 
-  // الحصول على FCM Token
-  String? token = await FirebaseMessaging.instance.getToken();
-  print("FCM Token: $token");
+  // تهيئة الإشعارات المحلية
+  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const initSettings = InitializationSettings(android: androidInit);
+  await flutterLocalNotificationsPlugin.initialize(initSettings);
 
-  // تهيئة notifications
-  const AndroidInitializationSettings initializationSettingsAndroid =
-      AndroidInitializationSettings('@mipmap/ic_launcher');
-
-  final InitializationSettings initializationSettings =
-      InitializationSettings(android: initializationSettingsAndroid);
-
-  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+  // ✅ تأكد من إعداد قناة الإشعارات
+  await flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(const AndroidNotificationChannel(
+    'weather_channel',
+    'Weather Alerts',
+    importance: Importance.high,
+  ));
 
   // تهيئة Workmanager
   await Workmanager().initialize(
     callbackDispatcher,
-    isInDebugMode: true, // اجعل false عند الإطلاق
+    isInDebugMode: false, // ⚠️ ضع true للتجربة فقط
   );
 
-  // تسجيل المهمة لتعمل كل 3 ساعات
+  // تنظيف المهام القديمة
+  await Workmanager().cancelAll();
+
+  // تسجيل المهام الدورية
   await Workmanager().registerPeriodicTask(
-    "weatherTask",
+    "weatherPeriodicTask",
     "fetchWeatherAndNotify",
-    frequency: const Duration(hours: 3),
+    frequency: const Duration(hours: 1), // كل ساعة
+    initialDelay: const Duration(seconds: 10),
+    constraints: Constraints(
+      networkType: NetworkType.connected,
+    ),
   );
+
+  print("🚀 App initialized with background tasks");
 
   runApp(const MyApp());
 }

@@ -81,7 +81,8 @@ class _ForecastScreenState extends State<ForecastScreen> with SingleTickerProvid
         
         // Get forecast closest to 12:00
         if (!dailyForecasts.containsKey(dateKey) ||
-            (dateTime.hour >= 12 && dateTime.hour < dailyForecasts[dateKey]['hour'])) {
+            (item['dt'] * 1000 - DateTime(dateTime.year, dateTime.month, dateTime.day, 12).millisecondsSinceEpoch).abs() <
+            (dailyForecasts[dateKey]['dt'] * 1000 - DateTime(dateTime.year, dateTime.month, dateTime.day, 12).millisecondsSinceEpoch).abs()) {
           dailyForecasts[dateKey] = {
             ...item,
             'hour': dateTime.hour,

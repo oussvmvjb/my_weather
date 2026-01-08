@@ -10,7 +10,7 @@ class WeatherService {
   static Future<Map<String, dynamic>> getCurrentWeather(String city) async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/weather?q=$city&appid=$apiKey&units=metric&lang=ar'),
+        Uri.parse('$baseUrl/weather?q=$city&appid=$apiKey&units=metric&lang=en'),
       );
 
       if (response.statusCode == 200) {
@@ -31,7 +31,7 @@ class WeatherService {
   static Future<Map<String, dynamic>> getWeatherForecast(String city) async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/forecast?q=$city&appid=$apiKey&units=metric&lang=ar'),
+        Uri.parse('$baseUrl/forecast?q=$city&appid=$apiKey&units=metric&lang=en'),
       );
 
       if (response.statusCode == 200) {
@@ -48,13 +48,31 @@ class WeatherService {
   static Future<Map<String, dynamic>> getWeatherByLocation(double lat, double lon) async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/weather?lat=$lat&lon=$lon&appid=$apiKey&units=metric&lang=ar'),
+        Uri.parse('$baseUrl/weather?lat=$lat&lon=$lon&appid=$apiKey&units=metric&lang=en'),
       );
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
       } else {
         throw Exception('فشل في جلب البيانات');
+      }
+    } catch (e) {
+      throw Exception('خطأ في الاتصال: $e');
+    }
+  }
+
+  // هذه الدالة تحتاج إلى تعديل - سأضيف التكملة الصحيحة
+  static Future<Map<String, dynamic>> getForecast(String city) async {
+    // جلب التوقعات لمدة 5 أيام (40 نقطة بيانات - كل 3 ساعات)
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/forecast?q=$city&appid=$apiKey&units=metric&lang=en&cnt=40'),
+      );
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        throw Exception('فشل في جلب التنبؤات: ${response.statusCode}');
       }
     } catch (e) {
       throw Exception('خطأ في الاتصال: $e');

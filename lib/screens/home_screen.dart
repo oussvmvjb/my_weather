@@ -1,11 +1,13 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import '../services/weather_service.dart';
 import '../models/weather_model.dart';
 import 'forecast_screen.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import '../screens/suggestions_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,15 +22,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   String _errorMessage = '';
   final TextEditingController _cityController = TextEditingController();
   final List<String> _popularCities = [
-  'Beja',
-  'Tunis',
-  'Bizerte',
-  'Sfax',
-  'Sousse',
-  'Gabes',
-  'Kairouan',
-  'Nabeul'
-];
+    'Beja',
+    'Tunis',
+    'Bizerte',
+    'Sfax',
+    'Sousse',
+    'Gabes',
+    'Kairouan',
+    'Nabeul'
+  ];
   
   // Animation controllers
   late AnimationController _animationController;
@@ -44,52 +46,52 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   ];
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
   FlutterLocalNotificationsPlugin();
+  
   @override
-void initState() {
-  super.initState();
+  void initState() {
+    super.initState();
 
-  // Initialize notifications
-  const AndroidInitializationSettings initializationSettingsAndroid =
-  AndroidInitializationSettings('@mipmap/ic_launcher');
+    // Initialize notifications
+    const AndroidInitializationSettings initializationSettingsAndroid =
+    AndroidInitializationSettings('@mipmap/ic_launcher');
 
-  final InitializationSettings initializationSettings =
-  InitializationSettings(android: initializationSettingsAndroid);
+    final InitializationSettings initializationSettings =
+    InitializationSettings(android: initializationSettingsAndroid);
 
-  flutterLocalNotificationsPlugin.initialize(initializationSettings);
-  // Initialize animation controller
-  _animationController = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 20),
-  )..repeat(reverse: true);
-  
-  _animation = Tween<double>(begin: -0.1, end: 0.1).animate(
-    CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
-  );
-  
-  // Background color changer
-  _bgTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-    setState(() {
-      _bgIndex = (_bgIndex + 1) % _bgColors.length;
+    flutterLocalNotificationsPlugin.initialize(initializationSettings);
+    // Initialize animation controller
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 20),
+    )..repeat(reverse: true);
+    
+    _animation = Tween<double>(begin: -0.1, end: 0.1).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
+    
+    // Background color changer
+    _bgTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      setState(() {
+        _bgIndex = (_bgIndex + 1) % _bgColors.length;
+      });
     });
-  });
-  
-  // Load weather
-  _loadCurrentLocationWeather();
+    
+    // Load weather
+    _loadCurrentLocationWeather();
 
-  // --- Firebase Messaging listener ---
-  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-    // يمكنك هنا عرض إشعار داخل التطبيق إذا أحببت
-    print("Notification received:");
-    print("Title: ${message.notification?.title}");
-    print("Body: ${message.notification?.body}");
-  });
+    // --- Firebase Messaging listener ---
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      // يمكنك هنا عرض إشعار داخل التطبيق إذا أحببت
+      print("Notification received:");
+      print("Title: ${message.notification?.title}");
+      print("Body: ${message.notification?.body}");
+    });
 
-  // (اختياري) استخراج FCM Token الآن
-  FirebaseMessaging.instance.getToken().then((token) {
-    print("FCM Token: $token"); // احتفظ بهذا لاستخدامه في n8n
-  });
-}
-
+    // (اختياري) استخراج FCM Token الآن
+    FirebaseMessaging.instance.getToken().then((token) {
+      print("FCM Token: $token"); // احتفظ بهذا لاستخدامه في n8n
+    });
+  }
 
   @override
   void dispose() {
@@ -97,98 +99,208 @@ void initState() {
     _bgTimer.cancel();
     super.dispose();
   }
+Future<void> _loadCurrentLocationWeather() async {
+  setState(() {
+    _isLoading = true;
+    _errorMessage = '';
+  });
 
-  Future<void> _loadCurrentLocationWeather() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = '';
-    });
+  print("🌍 Starting location weather fetch...");
 
-    try {
-      LocationPermission permission = await Geolocator.checkPermission();
+  try {
+    LocationPermission permission = await Geolocator.checkPermission();
+    print("📍 Permission status: $permission");
+    
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      print("📍 Requested permission: $permission");
+      
       if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          setState(() {
-            _errorMessage = 'Location permissions are denied';
-          });
-          _searchWeather('beja');
-          return;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
+        print("❌ Location permission denied");
         setState(() {
-          _errorMessage = 'Location permissions are permanently denied';
+          _errorMessage = 'Location permissions are denied';
+          _isLoading = false;
         });
         _searchWeather('beja');
         return;
       }
+    }
 
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-      );
-
-      final weatherData = await WeatherService.getWeatherByLocation(
-        position.latitude,
-        position.longitude,
-      );
-
+    if (permission == LocationPermission.deniedForever) {
+      print("❌ Location permission permanently denied");
       setState(() {
-        _currentWeather = Weather.fromJson(weatherData);
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Failed to get location: $e';
-        _searchWeather('beja');
-      });
-    } finally {
-      setState(() {
+        _errorMessage = 'Location permissions are permanently denied';
         _isLoading = false;
       });
-    }
-  }
-  Future<void> _showTestNotification() async {
-  try {
-    // جلب الطقس لمدينة معينة، مثال: Tunis
-    final weatherData = await WeatherService.getCurrentWeather('beja');
-    final double temp = weatherData['main']['temp'];
-
-    // نص الإشعار الأساسي
-    String message = 'درجة الحرارة الآن: ${temp.toStringAsFixed(1)}°C';
-
-    // شرط للإشعار: حرارة مرتفعة أو منخفضة
-    if (temp > 30) {
-      message += ' 🔥 الجو حار!';
-    } else if (temp < 10) {
-      message += ' ❄️ الجو بارد!';
+      _searchWeather('beja');
+      return;
     }
 
-    // إعداد Notification
-    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'weather_channel',
-      'Weather Alerts',
-      channelDescription: 'Notifications for temperature alerts',
-      importance: Importance.high,
-      priority: Priority.high,
-      playSound: true,
-    );
+    print("📍 Getting current position...");
+    Position position;
+    
+    // 🔥 الحل: إضافة timeout
+    try {
+      position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+        timeLimit: const Duration(seconds: 10), // ⏱️ timeout بعد 10 ثواني
+      );
+      print("✅ Position obtained: ${position.latitude}, ${position.longitude}");
+    } on TimeoutException catch (_) {
+      print("⏱️ Timeout getting position, using last known location");
+      
+      // حاول استخدام الموقع الأخير المعروف
+      final lastPosition = await Geolocator.getLastKnownPosition();
+      
+      if (lastPosition != null) {
+        position = lastPosition;
+        print("📌 Using last known position: ${position.latitude}, ${position.longitude}");
+      } else {
+        print("❌ No last known position, using default city");
+        throw Exception('Cannot get current position');
+      }
+    } catch (e) {
+      print("❌ Error getting position: $e");
+      throw Exception('Location error: $e');
+    }
 
-    const NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
-
-    // عرض الإشعار
-    await flutterLocalNotificationsPlugin.show(
-      0,
-      'Weather Update',
-      message,
-      platformDetails,
-      payload: 'Weather Payload',
+    print("🌤️ Fetching weather data...");
+    final weatherData = await WeatherService.getWeatherByLocation(
+      position.latitude,
+      position.longitude,
     );
+    
+    print("✅ Weather data received: ${weatherData['name']}");
+    
+    final city = weatherData['name'] ?? 'beja';
+
+    /// 🔹 حفظ المدينة ليستعملها WorkManager
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('city', city);
+    
+    print("💾 City saved to preferences: $city");
+    
+    setState(() {
+      _currentWeather = Weather.fromJson(weatherData);
+      _isLoading = false;
+    });
+    
+    print("✅ Weather loaded successfully for: $city");
+    
   } catch (e) {
-    print("Error showing test notification: $e");
+    print("❌ ERROR in _loadCurrentLocationWeather: $e");
+    print("❌ Error type: ${e.runtimeType}");
+    
+    setState(() {
+      _errorMessage = 'Using default city: Beja';
+      _isLoading = false;
+    });
+    
+    // حاول باستخدام مدينة افتراضية
+    print("🔄 Trying fallback city: beja");
+    _searchWeather('beja');
   }
 }
 
+  Future<void> _showTestNotification() async {
+    try {
+      // جلب الطقس لمدينة معينة، مثال: Tunis
+      final weatherData = await WeatherService.getCurrentWeather('beja');
+      final double temp = weatherData['main']['temp'];
+
+      // نص الإشعار الأساسي
+      String message = 'درجة الحرارة الآن: ${temp.toStringAsFixed(1)}°C';
+
+      // شرط للإشعار: حرارة مرتفعة أو منخفضة
+      if (temp > 30) {
+        message += ' 🔥 الجو حار!';
+      } else if (temp < 10) {
+        message += ' ❄️ الجو بارد!';
+      }
+
+      // إعداد Notification
+      const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+        'weather_channel',
+        'Weather Alerts',
+        channelDescription: 'Notifications for temperature alerts',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+      );
+
+      const NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+
+      // عرض الإشعار
+      await flutterLocalNotificationsPlugin.show(
+        0,
+        'Weather Update',
+        message,
+        platformDetails,
+        payload: 'Weather Payload',
+      );
+    } catch (e) {
+      print("Error showing test notification: $e");
+    }
+  }
+
+  // دالة للذهاب إلى الاقتراحات اليومية - تمت إضافتها
+  Future<void> _navigateToDailySuggestions() async {
+    if (_currentWeather == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please wait for weather data to load'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    try {
+      // جلب التوقعات أولاً
+      final forecasts = await WeatherService.getForecast(_currentWeather!.cityName);
+      final weatherForecasts = forecasts['list'].map<Weather>((item) => Weather.fromJson(item)).toList();
+      
+      // تصفية التوقعات لليوم الحالي فقط
+      final today = DateTime.now();
+      final todayForecasts = weatherForecasts.where((weather) {
+        return weather.date.day == today.day;
+      }).toList();
+
+      if (todayForecasts.isEmpty) {
+        // إذا لم يكن هناك توقعات، نستخدم الطقس الحالي
+        todayForecasts.add(_currentWeather!);
+      }
+
+      // الانتقال إلى صفحة الاقتراحات
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => SuggestionsScreen(
+            forecasts: todayForecasts,
+            city: _currentWeather!.cityName,
+          ),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load suggestions: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // دالة للإعدادات (اختياري) - تمت إضافتها
+  void _navigateToSettings() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Settings screen coming soon!'),
+        backgroundColor: Colors.blue,
+      ),
+    );
+    // يمكنك إضافة صفحة إعدادات لاحقاً
+  }
 
   Future<void> _searchWeather(String city) async {
     if (city.isEmpty) return;
@@ -534,7 +646,6 @@ void initState() {
                           valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                           strokeWidth: 2,
                         ),
-                    
                         const SizedBox(height: 20),
                         const Text(
                           'LOADING WEATHER DATA',
@@ -551,53 +662,107 @@ void initState() {
                 : Column(
                     children: [
                       // App bar
-                      // App bar - تم تعديل هذا الجزء
-Padding(
-  padding: const EdgeInsets.all(20),
-  child: Row(
-    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-    children: [
-      // القائمة مع زر الاختبار
-      PopupMenuButton<String>(
-        icon: const Icon(Icons.menu, color: Colors.white),
-        onSelected: (value) {
-          if (value == 'test_notification') {
-            _showTestNotification();
-          }
-        },
-        itemBuilder: (context) => [
-          const PopupMenuItem<String>(
-            value: 'test_notification',
-            child: Row(
-              children: [
-                Icon(Icons.notifications, color: Colors.orange),
-                SizedBox(width: 10),
-                Text('Test Notification'),
-              ],
-            ),
-          ),
-        ],
-        color: Colors.grey[900],
-      ),
-      
-      const Text(
-        'MY WEATHER',
-        style: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.w900,
-          color: Colors.white,
-          letterSpacing: 3,
-          fontFamily: 'Ethnocentric',
-        ),
-      ),
-      
-      IconButton(
-        icon: const Icon(Icons.refresh, color: Colors.white),
-        onPressed: _loadCurrentLocationWeather,
-      ),
-    ],
-  ),
-),
+                      Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // القائمة مع زر الاختبار
+                            PopupMenuButton<String>(
+                              icon: const Icon(Icons.menu, color: Colors.white),
+                              onSelected: (value) {
+                                if (value == 'test_notification') {
+                                  _showTestNotification();
+                                } else if (value == 'daily_suggestions') {
+                                  _navigateToDailySuggestions();
+                                } else if (value == 'settings') {
+                                  _navigateToSettings();
+                                }
+                              },
+                              itemBuilder: (context) => [
+                                const PopupMenuItem<String>(
+                                  value: 'daily_suggestions',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.lightbulb_outline, color: Colors.yellow),
+                                      SizedBox(width: 10),
+                                      Text('Daily Suggestions'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem<String>(
+                                  value: 'test_notification',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.notifications, color: Colors.orange),
+                                      SizedBox(width: 10),
+                                      Text('Test Notification'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem<String>(
+                                  value: 'settings',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.settings, color: Colors.blue),
+                                      SizedBox(width: 10),
+                                      Text('Settings'),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              color: Colors.grey[900],
+                            ),
+                            
+                            // إضافة زر الاقتراحات اليومية بشكل مباشر
+                            Row(
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.lightbulb_outline, color: Colors.yellow),
+                                  onPressed: _navigateToDailySuggestions,
+                                  tooltip: 'Daily Suggestions',
+                                ),
+                                const SizedBox(width: 10),
+                                const Text(
+                                  'MY WEATHER',
+                                  style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.white,
+                                    letterSpacing: 3,
+                                    fontFamily: 'Ethnocentric',
+                                  ),
+                                ),
+                              ],
+                            ),
+                            
+                            Row(
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.refresh, color: Colors.white),
+                                  onPressed: _loadCurrentLocationWeather,
+                                  tooltip: 'Refresh',
+                                ),
+                                // أو يمكنك إضافة زر إضافي للتنبؤات
+                                IconButton(
+                                  icon: const Icon(Icons.calendar_today, color: Colors.white),
+                                  onPressed: () {
+                                    if (_currentWeather != null) {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => ForecastScreen(city: _currentWeather!.cityName),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  tooltip: 'Forecast',
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
                       
                       // Search bar
                       Padding(
